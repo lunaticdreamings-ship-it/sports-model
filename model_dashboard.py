@@ -31,21 +31,52 @@ def norm_cdf(x, mu=0, sigma=1):
 def find_kalshi_alternates(player_name, prop_type):
     try:
         url = "https://api.elections.kalshi.com/trade-api/v2/markets"
-        params = {"limit": 100, "status": "open"}
-        r = requests.get(url, params=params, timeout=8)
+        params = {"limit": 200, "status": "open"}
+        r = requests.get(url, params=params, timeout=10)
         if r.status_code != 200:
             return []
         markets = r.json().get("markets", [])
         matches = []
         player_lower = str(player_name).lower().split()[-1] if player_name else ""
         prop_lower = str(prop_type).lower()
+        
+        # Prop-specific keywords and reasonable ranges
+        prop_filters = {
+            "point": {"keywords": ["point"], "min": 8, "max": 45},
+            "assist": {"keywords": ["assist"], "min": 2, "max": 15},
+            "rebound": {"keywords": ["rebound"], "min": 2, "max": 18},
+            "rushing": {"keywords": ["rush"], "min": 20, "max": 150},
+            "passing": {"keywords": ["pass", "yard"], "min": 150, "max": 400},
+            "receiving": {"keywords": ["receiv", "yard"], "min": 15, "max": 120},
+            "ace": {"keywords": ["ace"], "min": 2, "max": 20},
+        }
+        
+        filt = None
+        for key, val in prop_filters.items():
+            if key in prop_lower:
+                filt = val
+                break
+        
         for m in markets:
             title = (m.get("title", "") + " " + m.get("subtitle", "")).lower()
-            if player_lower and player_lower in title:
-                nums = re.findall(r"(\d+\.?\d*)", title)
-                if nums:
-                    matches.append({"line": float(nums[0]), "title": m.get("title", "")[:70]})
-        return matches[:6]
+            if not player_lower or player_lower not in title:
+                continue
+            if filt and not any(k in title for k in filt["keywords"]):
+                continue
+            nums = re.findall(r"(\d+\.?\d*)", title)
+            for n in nums:
+                val = float(n)
+                if filt and filt["min"] <= val <= filt["max"]:
+                    matches.append({"line": val, "title": m.get("title", "")[:60]})
+                    break
+        # Unique sorted
+        seen = set()
+        unique = []
+        for m in matches:
+            if m["line"] not in seen:
+                seen.add(m["line"])
+                unique.append(m)
+        return sorted(unique, key=lambda x: x["line"])[:8]
     except:
         return []
 
