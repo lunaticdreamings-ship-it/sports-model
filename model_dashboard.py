@@ -4,18 +4,24 @@ import json
 import os
 from datetime import datetime, date
 
-# File for persistence
-LOG_FILE = "/workspace/artifacts/model_dashboard_log.json"
+# File for persistence - works locally and on Streamlit Cloud
+LOG_FILE = "model_dashboard_log.json"
 
 def load_log():
     if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(LOG_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {"picks": [], "calibration": [], "daily_slips": [], "slate": {}, "api_keys": {}}
     return {"picks": [], "calibration": [], "daily_slips": [], "slate": {}, "api_keys": {}}
 
 def save_log(data):
-    with open(LOG_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(LOG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        st.warning(f"Could not save log: {e}")
 
 DEFAULT_SLATE = {s: [] for s in ["NBA", "NFL", "NHL", "MLB", "Soccer", "Tennis"]}
 
@@ -142,11 +148,7 @@ with tab2:
 
 with tab3:
     st.subheader("Live Data Integration")
-    st.info("Live odds and schedule pulls require an API key. Free tiers are limited. The structure is ready; connect a source below.")
-
-    st.markdown("**Supported Sources**")
-    st.markdown("- The Odds API (the-odds-api.com) — schedules + odds for major sports")
-    st.markdown("- Manual CSV upload (always available)")
+    st.info("Upload a CSV to load games into the slate.")
 
     uploaded = st.file_uploader("Upload Slate CSV", type="csv")
     if uploaded:
@@ -166,15 +168,6 @@ with tab3:
             save_log(st.session_state.log)
             st.success("CSV loaded into slate")
             st.rerun()
-
-    st.markdown("---")
-    st.markdown("**API Pull (Requires Key)**")
-    if odds_key:
-        st.success("Odds API key detected. Full live pull can be wired here.")
-        if st.button("Test Connection"):
-            st.info("Connection test placeholder. Wire the actual endpoint when ready.")
-    else:
-        st.warning("Add an Odds API key in the sidebar to enable live pulls.")
 
 with tab4:
     st.subheader("Quick Projection Tool")
@@ -232,4 +225,4 @@ with tab6:
         st.info("No settled picks yet.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Personal dashboard. Local storage.")
+st.sidebar.caption("Personal dashboard.")
