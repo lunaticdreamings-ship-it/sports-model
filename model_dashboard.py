@@ -75,4 +75,4 @@ if uploaded:
         else:
             st.info("No plays with edge ≥ 2.5%.")
 
-st.sidebar.markdown("Safe line is one fixed step down. Match it to the closest real Kalshi market yourself."
+st.sidebar.markdown("Safe line is one fixed step down. Match it to the closest real Kalshi market yourself.")
