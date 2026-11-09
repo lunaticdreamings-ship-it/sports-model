@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-import requests
+import math
 from datetime import datetime, date
 
 LOG_FILE = "model_dashboard_log.json"
@@ -13,8 +13,8 @@ def load_log():
             with open(LOG_FILE, "r") as f:
                 return json.load(f)
         except:
-            return {"picks": [], "daily_slips": [], "slate": []}
-    return {"picks": [], "daily_slips": [], "slate": []}
+            return {"slips": []}
+    return {"slips": []}
 
 def save_log(data):
     try:
@@ -23,26 +23,44 @@ def save_log(data):
     except:
         pass
 
-def fetch_kalshi_markets(sport_keyword):
-    try:
-        url = "https://api.elections.kalshi.com/trade-api/v2/markets"
-        params = {"limit": 50, "status": "open"}
-        r = requests.get(url, params=params, timeout=8)
-        if r.status_code != 200:
-            return []
-        markets = r.json().get("markets", [])
-        results = []
-        for m in markets:
-            title = (m.get("title", "") + " " + m.get("subtitle", "")).strip()
-            if sport_keyword.lower() in title.lower():
-                price = m.get("yes_ask") or m.get("last_price") or 50
-                results.append({
-                    "matchup": title[:90],
-                    "market_prob": round(price / 100 if price > 1 else price, 3)
-                })
-        return results[:6]
-    except:
-        return []
+def norm_cdf(x, mu=0, sigma=11):
+    return 0.5 * (1 + math.erf((x - mu) / (sigma * math.sqrt(2))))
+
+def run_model(row):
+    """Bayesian-style update and cover probability."""
+    prior = float(row.get("prior_net_rating", 0))
+    recent = float(row.get("recent_form", 0))
+    home = float(row.get("home_court", 0))
+    injury = float(row.get("injury_adj", 0))
+    market_p = float(row.get("market_prob", 0.5))
+
+    # Weighted posterior margin
+    posterior = (0.6 * prior) + (0.4 * recent) + home + injury
+
+    # Cover probability vs a -market line approximation
+    # Higher posterior = higher cover chance
+    cover_prob = norm_cdf(posterior, mu=0, sigma=11)
+    model_prob = min(0.88, max(0.52, cover_prob))
+
+    edge = round(model_prob - market_p, 3)
+
+    if edge >= 0.04:
+        regular = f"Lean (edge {edge})"
+        safe = "Safer number"
+    elif edge >= 0.02:
+        regular = "Slight lean"
+        safe = "Pass or reduce"
+    else:
+        regular = "Pass"
+        safe = "Pass"
+
+    return {
+        "posterior_margin": round(posterior, 1),
+        "model_prob": round(model_prob, 3),
+        "edge": edge,
+        "regular_lean": regular,
+        "safe_lean": safe
+    }
 
 if "log" not in st.session_state:
     st.session_state.log = load_log()
@@ -50,38 +68,54 @@ if "log" not in st.session_state:
 st.set_page_config(page_title="Model Dashboard", layout="wide")
 st.title("Personal Sports Model Dashboard")
 
-tab1, tab2 = st.tabs(["Run Slate", "Upload CSV"])
+st.header("Upload Model Input")
+st.caption("Upload a CSV with columns: sport, matchup, prior_net_rating, recent_form, home_court, injury_adj, market_prob")
 
-with tab1:
-    st.header("Run Today's Slate")
-    sport = st.selectbox("Select Sport", ["NBA", "NFL", "NHL", "MLB", "Soccer", "Tennis"])
-    if st.button("Run Slate", type="primary"):
-        with st.spinner("Pulling data..."):
-            data = fetch_kalshi_markets(sport)
-            if data:
-                st.success(f"Found {len(data)} markets")
-                st.dataframe(pd.DataFrame(data), use_container_width=True)
-            else:
-                st.warning("No markets found. Try uploading a CSV instead.")
+uploaded = st.file_uploader("Upload CSV", type="csv")
+if uploaded:
+    df = pd.read_csv(uploaded)
+    st.subheader("Input Data")
+    st.dataframe(df, use_container_width=True)
 
-with tab2:
-    st.header("Upload Slate CSV")
-    st.caption("Upload the CSV from the scraper. It should have columns: sport, matchup")
-    uploaded = st.file_uploader("Choose CSV", type="csv")
-    if uploaded:
-        df = pd.read_csv(uploaded)
-        st.dataframe(df, use_container_width=True)
-        if st.button("Load into Slate"):
-            st.session_state.log["slate"] = df.to_dict("records")
+    if st.button("Run Model", type="primary"):
+        results = []
+        for _, row in df.iterrows():
+            calc = run_model(row)
+            results.append({
+                "sport": row.get("sport", ""),
+                "matchup": row.get("matchup", ""),
+                "posterior_margin": calc["posterior_margin"],
+                "model_prob": calc["model_prob"],
+                "market_prob": row.get("market_prob", ""),
+                "edge": calc["edge"],
+                "regular_lean": calc["regular_lean"],
+                "safe_lean": calc["safe_lean"],
+                "notes": row.get("notes", "")
+            })
+
+        out = pd.DataFrame(results)
+        # Filter to positive edge
+        plays = out[out["edge"] >= 0.02].sort_values("edge", ascending=False)
+
+        st.subheader("Model Output")
+        st.dataframe(out, use_container_width=True)
+
+        st.subheader("Recommended Plays (Edge ≥ 2%)")
+        if len(plays) > 0:
+            st.dataframe(plays, use_container_width=True)
+            slip = {
+                "date": date.today().isoformat(),
+                "plays": plays.to_dict("records"),
+                "generated_at": datetime.now().isoformat()
+            }
+            st.session_state.log["slips"].append(slip)
             save_log(st.session_state.log)
-            st.success(f"Loaded {len(df)} games")
-            st.rerun()
+        else:
+            st.info("No plays cleared the 2% edge threshold.")
 
-    if st.session_state.log.get("slate"):
-        st.subheader("Current Loaded Slate")
-        st.dataframe(pd.DataFrame(st.session_state.log["slate"]), use_container_width=True)
+st.sidebar.markdown("### Template Columns")
+st.sidebar.code("""sport,matchup,prior_net_rating,
+recent_form,home_court,injury_adj,
+market_prob,notes""")
+st.sidebar.caption("Fill these in and upload.")
 
-st.sidebar.markdown("### Quick Guide")
-st.sidebar.markdown("1. Run the scraper on your computer")
-st.sidebar.markdown("2. Upload the CSV here")
-st.sidebar.markdown("3. Or use Run Slate for Kalshi markets")
