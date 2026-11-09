@@ -89,6 +89,22 @@ if "log" not in st.session_state:
 tab1, tab2, tab3 = st.tabs(["Run Slate", "Calibration", "Log"])
 
 with tab1:
+    st.subheader("Quick Start")
+    if st.button("Download Today's Sample CSVs"):
+        games_csv = """matchup,favorite,prior_net_rating,recent_form,home_court,injury_adj,rest_adj,market_prob
+Pistons vs Wizards,Pistons,7.9,6.5,2.5,0.5,0,0.52
+Cavaliers vs Hornets,Cavaliers,4.8,5.2,2.5,1.0,0,0.55
+Lakers vs Hawks,Hawks,3.1,4.0,2.0,0,0,0.48
+Bills vs Vikings,Bills,3.8,2.5,-1.0,0.5,0,0.54"""
+        props_csv = """player,prop_type,projection,line,std_dev,season_hit_rate,opponent_adj,market_prob,matchup
+Cade Cunningham,Points,24.8,22.5,5.5,0.58,1.2,0.52,Pistons vs Wizards
+Cade Cunningham,Assists,8.1,7.5,2.4,0.60,0.4,0.50,Pistons vs Wizards
+Josh Allen,Passing Yards,246,230.5,42,0.57,4,0.53,Bills vs Vikings
+James Cook,Rushing Yards,79,70.5,20,0.61,2,0.51,Bills vs Vikings"""
+        st.download_button("Download Games CSV", games_csv, "today_games.csv", "text/csv")
+        st.download_button("Download Props CSV", props_csv, "today_props.csv", "text/csv")
+        st.caption("Edit the numbers, then re-upload below.")
+
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Game Lines CSV")
@@ -160,3 +176,4 @@ st.sidebar.markdown("### CSV Formats")
 st.sidebar.markdown("**Games:** matchup, favorite, prior_net_rating, recent_form, home_court, injury_adj, rest_adj, market_prob")
 st.sidebar.markdown("**Props:** player, prop_type, projection, line, std_dev, season_hit_rate, opponent_adj, market_prob, matchup")
 st.sidebar.caption("Safe lines use fixed steps. Match to Kalshi.")
+
