@@ -93,14 +93,23 @@ def run_prop(row):
     if edge >= 0.03:
         regular = f"{direction} {line}"
         if available and diff > 0:
-            safer = [l for l in available if l < line - 0.5]
-            safe_line = max(safer) if safer else round(line - (10 if line > 50 else 2), 1)
+            # Next real lower threshold (at least 2+ units down, or the biggest step available)
+            safer = sorted([l for l in available if l <= line - 2])
+            safe_line = safer[-1] if safer else (sorted([l for l in available if l < line]) or [line - 5])[-1]
         elif available and diff < 0:
-            safer = [l for l in available if l > line + 0.5]
-            safe_line = min(safer) if safer else round(line + 2, 1)
+            safer = sorted([l for l in available if l >= line + 2])
+            safe_line = safer[0] if safer else (sorted([l for l in available if l > line]) or [line + 5])[0]
         else:
-            safe_line = round(line - (15 if line > 100 else 8 if line > 40 else 3), 1)
-        safe = f"{direction} {safe_line}"
+            # Fallback when no Kalshi match: one meaningful step
+            if line >= 100:
+                safe_line = line - 15
+            elif line >= 40:
+                safe_line = line - 10
+            elif line >= 15:
+                safe_line = line - 5
+            else:
+                safe_line = line - 2
+        safe = f"{direction} {round(safe_line, 1)}"
     else:
         regular = "Pass"
         safe = "Pass"
