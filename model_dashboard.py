@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import requests
 from datetime import datetime, date
 
 LOG_FILE = "model_dashboard_log.json"
@@ -12,8 +13,8 @@ def load_log():
             with open(LOG_FILE, "r") as f:
                 return json.load(f)
         except:
-            return {"picks": [], "daily_slips": [], "slate": {}}
-    return {"picks": [], "daily_slips": [], "slate": {}}
+            return {"picks": [], "daily_slips": [], "slate": []}
+    return {"picks": [], "daily_slips": [], "slate": []}
 
 def save_log(data):
     try:
@@ -22,20 +23,26 @@ def save_log(data):
     except:
         pass
 
-# Sample data - replace with live pull
-SAMPLE = {
-    "NBA": [
-        {"matchup": "Pistons vs Wizards", "lean": "Pistons -7.5", "prob": 0.74},
-        {"matchup": "Cavaliers vs Hornets", "lean": "Cavaliers -5.5", "prob": 0.73},
-    ],
-    "NFL": [
-        {"matchup": "Bills vs Vikings", "lean": "Bills ML", "prob": 0.72},
-    ],
-    "NHL": [],
-    "MLB": [],
-    "Soccer": [],
-    "Tennis": []
-}
+def fetch_kalshi_markets(sport_keyword):
+    try:
+        url = "https://api.elections.kalshi.com/trade-api/v2/markets"
+        params = {"limit": 50, "status": "open"}
+        r = requests.get(url, params=params, timeout=8)
+        if r.status_code != 200:
+            return []
+        markets = r.json().get("markets", [])
+        results = []
+        for m in markets:
+            title = (m.get("title", "") + " " + m.get("subtitle", "")).strip()
+            if sport_keyword.lower() in title.lower():
+                price = m.get("yes_ask") or m.get("last_price") or 50
+                results.append({
+                    "matchup": title[:90],
+                    "market_prob": round(price / 100 if price > 1 else price, 3)
+                })
+        return results[:6]
+    except:
+        return []
 
 if "log" not in st.session_state:
     st.session_state.log = load_log()
@@ -43,43 +50,38 @@ if "log" not in st.session_state:
 st.set_page_config(page_title="Model Dashboard", layout="wide")
 st.title("Personal Sports Model Dashboard")
 
-st.header("Run Today's Slate")
-sport = st.selectbox("Select Sport", ["NBA", "NFL", "NHL", "MLB", "Soccer", "Tennis"])
+tab1, tab2 = st.tabs(["Run Slate", "Upload CSV"])
 
-if st.button("Run Slate", type="primary"):
-    games = SAMPLE.get(sport, [])
-    if not games:
-        st.warning(f"No sample data loaded for {sport}. Add games in the editor or connect a live feed.")
-    else:
-        # Sort by probability and take top
-        games = sorted(games, key=lambda x: x["prob"], reverse=True)[:5]
-        slip = {
-            "date": date.today().isoformat(),
-            "sport": sport,
-            "legs": games,
-            "generated_at": datetime.now().isoformat()
-        }
-        st.session_state.log["daily_slips"].append(slip)
-        save_log(st.session_state.log)
+with tab1:
+    st.header("Run Today's Slate")
+    sport = st.selectbox("Select Sport", ["NBA", "NFL", "NHL", "MLB", "Soccer", "Tennis"])
+    if st.button("Run Slate", type="primary"):
+        with st.spinner("Pulling data..."):
+            data = fetch_kalshi_markets(sport)
+            if data:
+                st.success(f"Found {len(data)} markets")
+                st.dataframe(pd.DataFrame(data), use_container_width=True)
+            else:
+                st.warning("No markets found. Try uploading a CSV instead.")
 
-        st.success(f"Generated {len(games)}-leg slip for {sport}")
-        st.dataframe(pd.DataFrame(games), use_container_width=True)
+with tab2:
+    st.header("Upload Slate CSV")
+    st.caption("Upload the CSV from the scraper. It should have columns: sport, matchup")
+    uploaded = st.file_uploader("Choose CSV", type="csv")
+    if uploaded:
+        df = pd.read_csv(uploaded)
+        st.dataframe(df, use_container_width=True)
+        if st.button("Load into Slate"):
+            st.session_state.log["slate"] = df.to_dict("records")
+            save_log(st.session_state.log)
+            st.success(f"Loaded {len(df)} games")
+            st.rerun()
 
-st.markdown("---")
-st.subheader("Recent Slips")
-if st.session_state.log.get("daily_slips"):
-    for slip in reversed(st.session_state.log["daily_slips"][-5:]):
-        with st.expander(f"{slip['date']} - {slip['sport']} ({len(slip['legs'])} legs)"):
-            st.dataframe(pd.DataFrame(slip["legs"]), use_container_width=True)
-else:
-    st.info("No slips generated yet.")
+    if st.session_state.log.get("slate"):
+        st.subheader("Current Loaded Slate")
+        st.dataframe(pd.DataFrame(st.session_state.log["slate"]), use_container_width=True)
 
-st.sidebar.header("Add / Edit Games")
-st.sidebar.caption("Use this until live data is connected.")
-edit_sport = st.sidebar.selectbox("Sport", ["NBA", "NFL", "NHL", "MLB", "Soccer", "Tennis"], key="es")
-mu = st.sidebar.text_input("Matchup")
-ln = st.sidebar.text_input("Lean")
-pr = st.sidebar.number_input("Probability", 0.5, 0.9, 0.7, 0.01)
-if st.sidebar.button("Add Game"):
-    SAMPLE.setdefault(edit_sport, []).append({"matchup": mu, "lean": ln, "prob": pr})
-    st.sidebar.success("Added (session only)")
+st.sidebar.markdown("### Quick Guide")
+st.sidebar.markdown("1. Run the scraper on your computer")
+st.sidebar.markdown("2. Upload the CSV here")
+st.sidebar.markdown("3. Or use Run Slate for Kalshi markets")
