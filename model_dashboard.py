@@ -78,8 +78,16 @@ def run_prop(row):
     direction = "Over" if diff > 0 else "Under"
     if edge >= 0.035:
         regular = f"{direction} {line}"
-        safe_shift = 1.5 if abs(diff) > 3 else 1
-        safe_line = line - safe_shift if diff > 0 else line + safe_shift
+        # Larger safe shift based on prop type scale
+        if line > 100:          # passing/rushing yards
+            safe_shift = 15
+        elif line > 20:         # points
+            safe_shift = 3
+        elif line > 8:          # rebounds/assists/aces
+            safe_shift = 1.5
+        else:
+            safe_shift = 1
+        safe_line = round(line - safe_shift, 1) if diff > 0 else round(line + safe_shift, 1)
         safe = f"{direction} {safe_line}"
     elif edge >= 0.015:
         regular = f"{direction} {line} (thin)"
@@ -159,4 +167,3 @@ st.sidebar.markdown("- **std_dev**: Typical variation (default 25% of projection
 st.sidebar.markdown("- **season_hit_rate**: How often player clears similar lines (0-1)")
 st.sidebar.markdown("- **opponent_adj**: Plus/minus vs this defense")
 st.sidebar.markdown("- **rest_adj**: For games (back-to-back etc.)")
-
